@@ -842,7 +842,7 @@ else:
             count_choice = st.selectbox(f"Number of classes for {title_case_label(sem)}", [3, 4], key=sem)
             class_limits[sem] = (count_choice, count_choice)
 
-st.subheader("SAS Context")
+st.subheader("School Context")
 
 if any(sem.startswith("Fall") for sem in semesters):
     a_or_b_year = st.selectbox("Upcoming Fall Year",
