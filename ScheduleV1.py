@@ -1,7 +1,6 @@
-#!/usr/bin/env python3
 """
 SAS Kendall AA Planner
-Builds a personalized semester schedule based on your major, completed courses, AP credits, and available study time.
+Builds a personalized schedule based off your major, completed courses, AP credits, and available study time.
 """
 
 import math
@@ -11,7 +10,6 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import pulp
 import streamlit as st
-
 
 @dataclass
 class Course:
@@ -26,8 +24,7 @@ class Course:
     is_high_school_ap: bool = False
     allowed_terms: Optional[List[str]] = None
 
-
-# ---------- Course catalog ----------
+    # Course catalog 
 courses: Dict[str, Course] = {
     # English
     "ENC1101": Course("ENC 1101 - English Composition 1", workload=1.5, difficulty=4, fulfills=["English"]),
@@ -137,8 +134,7 @@ PDF_PREREQ_RULES = {
 for code, prereqs in PDF_PREREQ_RULES.items():
     courses[code].prereqs = prereqs
 
-
-# ---------- Workload calibration ----------
+# Workload calibration 
 HARD_WORKLOAD_COURSES = {
     "MAC2312", "MAC2313", "MAP2302", "PHY2048", "PHY2049",
     "CHM1046", "CHM2210", "CHM2211", "COP2805C",
@@ -166,8 +162,7 @@ def recalibrate_course_workloads():
 
 recalibrate_course_workloads()
 
-
-# ---------- Requirement definitions ----------
+# Requirement definitions 
 GEN_EDS = {
     "English": {"courses": ["ENC1101", "ENC1102"], "allowed": {0, 3, 6}},
     "Oral Communication": {"courses": ["SPC1017", "SPC2608"], "yes_no": True},
@@ -206,7 +201,6 @@ SUBJECT_FOCUS = {
 }
 
 SUMMER_BLOCKED_PREFIXES = ("MAC", "MAD", "MGF", "BSC", "BOT", "CHM", "PHY", "MCB", "AST", "ESC")
-
 
 # ---------- Helper functions ----------
 def classes_needed_from_credits(credits: int) -> int:
@@ -261,7 +255,7 @@ def build_candidates(major: str, completed: Set[str], locked: Set[str], gen_need
             add_prereqs_recursively(prereq, 600, depth + 1)
         add_candidate(candidates, code, priority)
 
-    # 1. AP‑required courses (high priority)
+    # 1: AP-required courses (high priority)
     for code in required_by_ap:
         if code not in completed and code not in locked:
             add_candidate(candidates, code, 10000)
@@ -272,7 +266,7 @@ def build_candidates(major: str, completed: Set[str], locked: Set[str], gen_need
             add_candidate(candidates, code, 9500)
             required_groups.append([code])
 
-    # 2. General education requirements
+    # 2: General education requirements
     for area, credits in gen_needed.items():
         if credits <= 0:
             continue
@@ -280,7 +274,7 @@ def build_candidates(major: str, completed: Set[str], locked: Set[str], gen_need
         area_courses = [code for code in GEN_EDS[area]["courses"] if code in courses and code not in completed and code not in locked]
         for code in area_courses:
             if area == "English":
-                priority = 9000   # make sure English gets scheduled
+                priority = 9000   # make sure english gets scheduled
             else:
                 priority = 800 if code in major_related else 700
             add_candidate(candidates, code, priority)
@@ -295,7 +289,7 @@ def build_candidates(major: str, completed: Set[str], locked: Set[str], gen_need
         if general_only:
             capped_groups.append((general_only, needed_classes))
 
-    # 3. Major requirements
+    # 3: Major requirements
     major_info = MAJOR_REQS[major]
     for group in major_info["groups"]:
         if group_satisfied(group, completed):
@@ -317,14 +311,13 @@ def build_candidates(major: str, completed: Set[str], locked: Set[str], gen_need
         for code in available:
             add_prereqs_recursively(code, 350)
 
-    # 4. Undecided focus courses (only if undecided)
+    # 4: Undecided focus courses (only if undecided)
     if major == "undecided":
         for code in focus_courses:
             if code in courses and code not in completed and code not in locked:
                 add_candidate(candidates, code, 180)
 
     return sorted(candidates), required_groups, capped_groups, not candidates
-
 
 def add_electives_to_fill_slots(candidates: List[str], semesters: List[str],
                                 class_limits: Dict[str, Tuple[int, int]]) -> Tuple[List[str], bool]:
@@ -370,7 +363,7 @@ def create_schedule(candidates: List[str], required_groups: List[List[str]],
 
     balancing_weight = 0.1
 
-    # Objective: minimize priority cost + slight balancing penalty.
+    # Minimize priority cost + slight balancing penalty.
     # The multiplier 5 on semester index nudges courses earlier.
     priority_term = pulp.lpSum(x[c, s] * ((10000 - courses[c].priority) + semesters.index(s) * 5)
                                for c in candidates for s in semesters)
@@ -404,7 +397,7 @@ def create_schedule(candidates: List[str], required_groups: List[List[str]],
         if group_candidates:
             prob += pulp.lpSum(x[c, s] for c in group_candidates for s in semesters) <= max_count
 
-    # Adjacency for single‑prereq courses (skip summer)
+    # Adjacency for single-prereq courses (skip summer)
     academic_prev = {}
     for i, s in enumerate(semesters):
         prev = None
@@ -446,7 +439,7 @@ def create_schedule(candidates: List[str], required_groups: List[List[str]],
                     prob += x[c, s] <= pulp.lpSum(x[prereq, t] for t in earlier_terms)
                 else:
                     prob += x[c, s] == 0
-
+    
     status_code = prob.solve(pulp.PULP_CBC_CMD(msg=False, timeLimit=30))
     if pulp.LpStatus[status_code] != "Optimal":
         print("Workload/class limits blocked an optimal schedule. Falling back to priority order...")
@@ -459,7 +452,6 @@ def create_schedule(candidates: List[str], required_groups: List[List[str]],
             if pulp.value(x[c, s]) > 0.5:
                 schedule[s].append(c)
     return {sem: sorted(schedule[sem], key=lambda code: (-courses[code].priority, courses[code].name)) for sem in semesters}
-
 
 def priority_fallback(candidates: List[str], capped_groups: List[Tuple[List[str], int]],
                       semesters: List[str], class_limits: Dict[str, Tuple[int, int]],
@@ -498,11 +490,9 @@ def priority_fallback(candidates: List[str], capped_groups: List[Tuple[List[str]
             print(f"Warning: only {len(schedule[sem])} eligible classes for {sem}; needed {min_classes}.")
     return schedule
 
-
-# ---------- Streamlit UI ----------
+# Streamlit UI
 FUNCTION_WORDS = {"a", "an", "and", "as", "at", "but", "by", "for", "in", "nor", "of",
                   "on", "or", "per", "the", "to", "with"}
-
 
 def title_case_label(text: str) -> str:
     words = str(text).replace("_", " ").split()
@@ -539,8 +529,8 @@ def major_course_options(major: str) -> List[str]:
 
 
 def transform_workload(user_hours: int) -> float:
-    # Map 5‑20 hours to a workload cap that grows steeply
-    transformed = 4 + (user_hours - 5) * (5 / 3)  # slope ≈ 1.67
+    # Map 5-20 hours to a workload cap that grows steeply
+    transformed = 4 + (user_hours - 5) * (5 / 3)  # slope = ~1.67
     return round(min(transformed, 20), 1)
 
 
@@ -564,7 +554,6 @@ def get_course_fulfillment_label(code: str, major: str, gen_needed: Dict[str, in
     if course.fulfills:
         return course.fulfills[0]
     return "Additional Course"
-
 
 AP_SOCIAL_CREDIT_COURSES = {"AMH2010", "AMH2020", "POS2041", "ECO2013"}
 
@@ -791,7 +780,7 @@ st.markdown(
     <div style="background: #1a3b5c; color: white; padding: 1.25rem 1.75rem; border-radius: 10px; margin-bottom: 1.5rem; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
     <div style="font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem;">Personalized SAS Planner</div>
     <ul style="margin: 0; padding-left: 1.2rem; line-height: 1.8;">
-        <li>Builds a semester‑by‑semester plan centered around your major and progress.</li>
+        <li>Builds a semester-by-semester plan centered around your major and progress.</li>
         <li>Accounts for completed courses, AP credits, and strict prerequisite restrictions.</li>
         <li>Balances your workload across semesters based on your available study hours.</li>
         <li>Ensures all AA general education and major requirements are fulfilled.</li>
@@ -802,7 +791,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ---------- User inputs ----------
+# User inputs 
 completed = set()
 locked_courses = set()
 required_by_ap = set()
@@ -1075,7 +1064,7 @@ for area, meta in GEN_EDS.items():
                 "English credits still needed?",
                 [0, 3, 6],
                 key="english_credits",
-                help="If you got a 3 or less in AP English: 3 → only ENC1102 needed; 6 → both ENC1101 and ENC1102 needed."
+                help="If you got a 3 or less in AP English. 3 means only ENC1102 is needed (score of 3); 6 means ENC1101 and ENC1102 are needed (score of 1 or 2)."
             )
             general_needed[area] = english_credits_needed
         else:
@@ -1091,8 +1080,8 @@ for area, meta in GEN_EDS.items():
             sorted(list(meta["allowed"])),
             key=area
         )
-
-# ---------- Generate Schedule ----------
+    
+# Generate Schedule 
 run = st.button("Generate Schedule", use_container_width=True)
 
 if run:
@@ -1127,9 +1116,9 @@ if run:
         if workload_warning:
             st.warning(
                 "**Possible Workload Limit Reached**\n\n"
-                "Your schedule respects your reported available hours. "
-                "It's possible that additional courses (or heavier ones) were skipped because they'd exceed your limit. "
-                "If you feel you can handle more, increase your weekly hours above."
+                "Your schedule currently respects your reported available hours. "
+                "It is possible that additional courses (or heavier ones) were not scheduled because they would exceed the workload limit you set. "
+                "If you feel you can handle more, increase your weekly hours in the input above."
             )
 
         st.success("Schedule was created successfully")
@@ -1163,9 +1152,10 @@ if run:
 
         if elective_scheduled:
             st.info(
-                "All requirements appear complete. Electives were added. "
-                "You can choose any course – a higher‑division class, a fun elective, or something you're curious about. "
-                "The choice is yours!"
+                "*All requirements appear complete. Electives were added. "
+                "Since you are finished with all of your required courses, you can choose your own elective. "
+                "This can be either a higher division course for your major, a fun class you want to take, "
+                "or a subject that you have interest in! The choice is yours."
             )
 
     st.markdown(
